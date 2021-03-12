@@ -49,6 +49,9 @@ class Maze:
                                  lineThick)
                 xLine += self.blockLen
 
+    def drawRect(self, row, col, color=(255, 255, 255)):
+        pygame.draw.rect(self.gameDisplay, color, [col * self.blockLen, row * self.blockLen, self.blockLen + 1, self.blockLen + 1])
+
     def drawQTableValuesArrow(self, qTable):
 
         arrowImg = pygame.image.load('arrow.png')

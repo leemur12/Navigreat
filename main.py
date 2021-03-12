@@ -1,11 +1,13 @@
 from __future__ import print_function
-import os, sys, time, datetime, json, random
+import os, sys, time, datetime, json, random, math
 import numpy as np
 import pandas as pd
+from statistics import mean
 from keras.models import Sequential
 from keras.layers.core import Dense, Activation
 from keras.optimizers import SGD, Adam, RMSprop
 from keras.layers.advanced_activations import PReLU
+import tensorflow as tf
 import matplotlib.pyplot as plt
 import PygameDisplay
 import pygame
@@ -15,13 +17,17 @@ class Qmaze(object):
     def __init__(self, maze, visuals, rat=(0, 0)):
         self._maze = maze
         nrows, ncols = self._maze.shape
-        self.visuals = visuals
+        self.visuals = True
         self.target_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == 2.0]
         self.free_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == 1.0]
         rat = random.choice(self.free_cells)
         if rat not in self.free_cells:
             raise Exception("Invalid Rat Location: must sit on a free cell")
         self.reset(rat)
+        self.last_visited = rat
+        self.completing = False
+        self.loss_memory = list()
+        self.max_loss_memory = 50
 
     def reset(self, rat):
         self.rat = rat
@@ -30,15 +36,16 @@ class Qmaze(object):
         row, col = rat
         self.maze[row, col] = rat_mark
         self.state = (row, col, 'start')
-        self.min_reward = -0.5 * self.maze.size
+        self.min_reward = -0.25 * self.maze.size
         self.total_reward = 0
         self.visited = set()
+        self.last_visited = rat
 
     def update_state(self, action):
         nrows, ncols = self.maze.shape
         nrow, ncol, nmode = rat_row, rat_col, mode = self.state
 
-        if self.maze[rat_row, rat_col] > 0.0:
+        if self.maze[rat_row, rat_col] > 0.0 and (rat_row, rat_col) not in self.visited:
             self.visited.add((rat_row, rat_col))  # mark visited cell
 
         valid_actions = self.valid_actions()
@@ -68,11 +75,14 @@ class Qmaze(object):
             return 1.0
         if mode == 'blocked':
             return self.min_reward - 1
-        if (rat_row, rat_col) in self.visited:
-            valid_actions = qmaze.valid_actions()
-            if len(valid_actions) == 1:
-                return -0.75
-            return -0.25
+        valid_actions = qmaze.valid_actions()
+        if len(valid_actions) == 1:
+            return -0.75
+        """if (rat_row, rat_col) in self.visited:
+            if (rat_row, rat_col) == self.last_visited:
+                print("Whoops")
+                return -2.0
+            return -0.5"""
         if mode == 'invalid':
             return -0.75
         if mode == 'valid':
@@ -81,6 +91,7 @@ class Qmaze(object):
             return 0.0
 
     def act(self, action):
+        self.last_visited = self.rat
         self.update_state(action)
         reward = self.get_reward()
         self.total_reward += reward
@@ -99,7 +110,7 @@ class Qmaze(object):
         # clear all visual marks
         for r in range(nrows):
             for c in range(ncols):
-                if canvas[r, c] > 0.0:
+                if 0.0 < canvas[r, c] < 1.5:
                     canvas[r, c] = 1.0
         # draw the rat
         row, col, valid = self.state
@@ -108,10 +119,11 @@ class Qmaze(object):
 
     def game_status(self):
         if self.total_reward < self.min_reward:
+            # print(self.total_reward)
             return 'lose'
         rat_row, rat_col, mode = self.state
-        nrows, ncols = self.maze.shape
         if (rat_row, rat_col) in self.target_cells:
+            # print(self.total_reward)
             return 'win'
 
         return 'not_over'
@@ -143,6 +155,15 @@ class Qmaze(object):
         if col < ncols - 1 and self.maze[row, col + 1] == 0.0:
             actions.remove(2)
 
+        if row > 0 and (row - 1, col) in self.visited and self.completing:
+            actions.remove(1)
+        if col > 0 and (row, col - 1) in self.visited and self.completing:
+            actions.remove(0)
+        if row < nrows - 1 and (row + 1, col) in self.visited and self.completing:
+            actions.remove(3)
+        if col < ncols - 1 and (row, col + 1) in self.visited and self.completing:
+            actions.remove(2)
+
         return actions
 
 
@@ -168,6 +189,8 @@ def show(qmaze):
 def play_game(model, qmaze, rat_cell):
     qmaze.reset(rat_cell)
     envstate = qmaze.observe()
+    nrows, ncols = qmaze.maze.shape
+    count = 0
     while True:
         prev_envstate = envstate
         # get next action
@@ -176,7 +199,19 @@ def play_game(model, qmaze, rat_cell):
 
         # apply action, get rewards and new state
         envstate, reward, game_status = qmaze.act(action)
+        if qmaze.visuals:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    quit()
+            pyMaze.draw()
+            spot = np.where(envstate == rat_mark)
+            playerSprite.draw(math.ceil(float(spot[0][0]) / ncols), spot[0][0] % ncols)
+            pygame.display.update()
         if game_status == 'win':
+            if qmaze.visuals:
+                row, col, mode = qmaze.state
+                pyMaze.drawRect(row, col, (0, 183, 255))
+                pygame.display.update()
             return True
         elif game_status == 'lose':
             return False
@@ -184,9 +219,12 @@ def play_game(model, qmaze, rat_cell):
 
 def completion_check(model, qmaze):
     for cell in qmaze.free_cells:
-        if not qmaze.valid_actions(cell):
+        print(cell)
+        if not qmaze.valid_actions:
+            print("Action Fail")
             return False
         if not play_game(model, qmaze, cell):
+            print("Playing Fail")
             return False
     return True
 
@@ -254,88 +292,111 @@ def qtrain(model, maze, view, **opt):
 
     win_history = []  # history of win/lose game
     n_free_cells = len(qmaze.free_cells)
-    hsize = 50  # history window size
+    hsize = 20  # history window size
     win_rate = 0.0
     imctr = 1
 
-    for epoch in range(n_epoch):
-        print("on epoch", epoch)
-        loss = 0.0
-        rat_cell = random.choice(qmaze.free_cells)
-        qmaze.reset(rat_cell)
-        game_over = False
+    log_dir = "logs/fit/mouse2"
+    writer = tf.summary.create_file_writer(log_dir)
+    with writer.as_default():
+        for epoch in range(n_epoch):
+            print("on epoch", epoch)
+            loss = 0.0
+            rat_cell = random.choice(qmaze.free_cells)
+            qmaze.reset(rat_cell)
+            game_over = False
 
-        # get initial envstate (1d flattened canvas)
-        envstate = qmaze.observe()
+            # get initial envstate (1d flattened canvas)
+            envstate = qmaze.observe()
 
-        n_episodes = 0
-        while not game_over:
-            valid_actions = qmaze.valid_actions()
-            if not valid_actions: break
-            prev_envstate = envstate
-            # Get next action
-            if np.random.rand() < epsilon:
-                action = random.choice(valid_actions)
-            else:
-                action = np.argmax(experience.predict(prev_envstate))
+            n_episodes = 0
+            while not game_over:
+                valid_actions = qmaze.valid_actions()
+                if not valid_actions: break
+                prev_envstate = envstate
+                # Get next action
+                if np.random.rand() < epsilon:
+                    action = random.choice(valid_actions)
+                else:
+                    action = np.argmax(experience.predict(prev_envstate))
 
-            row, col, mode = qmaze.state
+                row, col, mode = qmaze.state
 
-            if qmaze.visuals:
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        quit()
-                pyMaze.draw()
-                playerSprite.draw(col, row)
-                pygame.display.update()
+                if qmaze.visuals:
+                    for event in pygame.event.get():
+                        if event.type == pygame.QUIT:
+                            h5file = name + ".h5"
+                            json_file = name + ".json"
+                            model.save_weights(h5file, overwrite=True)
+                            with open(json_file, "w") as outfile:
+                                json.dump(model.to_json(), outfile)
+                            print("Saved model!")
+                            quit()
+                    pyMaze.draw()
+                    playerSprite.draw(col, row)
+                    pygame.display.update()
 
-            print(row, col, mode)
+                # print(row, col, mode)
 
-            # Apply action, get reward and new envstate
-            envstate, reward, game_status = qmaze.act(action)
+                # Apply action, get reward and new envstate
+                envstate, reward, game_status = qmaze.act(action)
 
-            if game_status == 'win':
-                win_history.append(1)
-                game_over = True
-            elif game_status == 'lose':
-                win_history.append(0)
-                game_over = True
-            else:
-                game_over = False
+                if game_status == 'win':
+                    if qmaze.visuals:
+                        row, col, mode = qmaze.state
+                        pyMaze.drawRect(row, col, (0, 183, 255))
+                        pygame.display.update()
+                    win_history.append(1)
+                    game_over = True
+                elif game_status == 'lose':
+                    win_history.append(0)
+                    game_over = True
+                else:
+                    game_over = False
 
-            # Store episode (experience)
-            episode = [prev_envstate, action, reward, envstate, game_over]
+                # Store episode (experience)
+                episode = [prev_envstate, action, reward, envstate, game_over]
 
-            experience.remember(episode)
+                experience.remember(episode)
 
-            n_episodes += 1
+                n_episodes += 1
 
-            # Train neural network model
-            inputs, targets = experience.get_data(data_size=data_size)
+                # Train neural network model
+                inputs, targets = experience.get_data(data_size=data_size)
 
-            h = model.fit(
-                inputs,
-                targets,
-                epochs=8,
-                batch_size=16,
-                verbose=0,
-            )
+                h = model.fit(
+                    inputs,
+                    targets,
+                    epochs=8,
+                    batch_size=16,
+                    verbose=0,
+                )
 
-            loss = model.evaluate(inputs, targets, verbose=0)
+                tf.summary.scalar("epoch_loss", h.history["loss"][0], step=epoch)
+                tf.summary.scalar("episode_reward", reward, step=epoch)
+                tf.summary.scalar("win_rate", sum(win_history[-hsize:]) / hsize, step=epoch)
+                writer.flush()
 
-        if len(win_history) > hsize:
-            win_rate = sum(win_history[-hsize:]) / hsize
+                loss = model.evaluate(inputs, targets, verbose=0)
+                qmaze.loss_memory.append(loss)
+                if len(qmaze.loss_memory) > qmaze.max_loss_memory:
+                    qmaze.loss_memory.pop(0)
 
-        dt = datetime.datetime.now() - start_time
-        t = format_time(dt.total_seconds())
-        template = "Epoch: {:03d}/{:d} | Loss: {:.4f} | Episodes: {:d} | Win count: {:d} | Win rate: {:.3f} | time: {}"
-        print(template.format(epoch, n_epoch - 1, loss, n_episodes, sum(win_history), win_rate, t))
-        # we simply check if training has exhausted all free cells and if in all
-        # cases the agent won
-        if win_rate > 0.9: epsilon = 0.05
-        if sum(win_history[-hsize:]) == hsize:
-            print("Reached 100%% win rate at epoch: %d" % (epoch,))
-            break
+            if len(win_history) > hsize:
+                win_rate = sum(win_history[-hsize:]) / hsize
+
+            dt = datetime.datetime.now() - start_time
+            t = format_time(dt.total_seconds())
+            template = "Epoch: {:03d}/{:d} | Loss: {:.4f} | Episodes: {:d} | Win count: {:d} | Win rate: {:.3f} | time: {}"
+            print(template.format(epoch, n_epoch - 1, loss, n_episodes, sum(win_history), win_rate, t))
+            # we simply check if training has exhausted all free cells and if in all
+            # cases the agent won
+            if game_status == 'win' and epsilon >= 0.05:
+                epsilon -= .1 / qmaze.maze.size
+            if len(win_history) > hsize and win_rate == 1.0:
+                print("Reached .005 average loss at epoch: %d" % (epoch,))
+                break
+            experience.memory.clear()
 
     # Save trained model weights and architecture, this will be used by the visualization code
     h5file = name + ".h5"
@@ -343,15 +404,17 @@ def qtrain(model, maze, view, **opt):
     model.save_weights(h5file, overwrite=True)
     with open(json_file, "w") as outfile:
         json.dump(model.to_json(), outfile)
+    print("Saved model!")
+    print('files: %s, %s' % (h5file, json_file))
+    print("n_epoch: %d, max_mem: %d, data: %d, time: %s" % (epoch, max_memory, data_size, t))
+    print("Checking for completion. This will take a while.")
+    qmaze.completing = True
+    # fin_check = completion_check(model, qmaze)
     end_time = datetime.datetime.now()
     dt = datetime.datetime.now() - start_time
     seconds = dt.total_seconds()
     t = format_time(seconds)
-    print('files: %s, %s' % (h5file, json_file))
-    print("n_epoch: %d, max_mem: %d, data: %d, time: %s" % (epoch, max_memory, data_size, t))
-    print("Checking for completion. This will take a while.")
-    fin_check = completion_check(model, qmaze)
-    return seconds
+    return seconds  # fin_check
 
 
 # This is a small utility for printing readable time strings:
@@ -378,9 +441,6 @@ def build_model(maze, lr=0.001):
     return model
 
 
-myFile = pd.read_csv('NGArray.csv', sep=',', header=None)
-maze = pd.DataFrame(myFile).to_numpy()
-
 """
 maze = np.array([
     [1., 0., 1., 1., 1., 1., 1.],
@@ -394,7 +454,7 @@ maze = np.array([
 """
 
 visited_mark = 0.8  # Cells visited by the rat will be painted by gray 0.8
-rat_mark = 0.5  # The current rat cell will be painteg by gray 0.5
+rat_mark = 3  # The current rat cell will be painted by gray 0.5
 LEFT = 0
 UP = 1
 RIGHT = 2
@@ -413,32 +473,41 @@ num_actions = len(actions_dict)
 # Exploration factor
 epsilon = 0.1
 
-# Initialize the maze
-qmaze = Qmaze(maze, False)
+directory = "TrainingMazes/"
 
-if qmaze.visuals:
-    dispL = 800
-    rows, cols = maze.shape
-    square_size = int(dispL / max(rows, cols))
-    pygame.init()
-    gameDisplay = pygame.display.set_mode(size=(square_size * cols, square_size * rows))
-    pygame.display.set_caption('Maze')
-    gameDisplay.fill((255, 255, 255))
-    pyMaze = PygameDisplay.Maze(maze, gameDisplay, dispL, 0, 2)
-    pyMaze.draw()
+for file in os.listdir(directory):
+    filename = os.fsdecode(file)
+    mazeFile = os.path.join(directory, filename)
+    myFile = pd.read_csv(mazeFile, sep=',', header=None)
+    maze = pd.DataFrame(myFile).to_numpy()
 
-    playerSprite = PygameDisplay.PlayerSprite(pyMaze.blockLen, gameDisplay)
-    pygame.display.update()
+    # Initialize the maze
+    qmaze = Qmaze(maze, False)
 
-# show(qmaze)
-plt.show()
-model = build_model(maze)
+    if qmaze.visuals:
+        dispL = 800
+        rows, cols = maze.shape
+        square_size = int(dispL / max(rows, cols))
+        pygame.init()
+        gameDisplay = pygame.display.set_mode(size=(square_size * cols, square_size * rows))
+        pygame.display.set_caption('Maze')
+        gameDisplay.fill((255, 255, 255))
+        pyMaze = PygameDisplay.Maze(maze, gameDisplay, dispL, 0, 2)
+        pyMaze.draw()
 
-time, finished = qtrain(model, maze, qmaze.visuals, epochs=1000, max_memory=8 * maze.size, data_size=32)
+        playerSprite = PygameDisplay.PlayerSprite(pyMaze.blockLen, gameDisplay)
+        pygame.display.update()
 
-while not finished:
-    print("Model was not finished training! Restarting program...")
-    _time, finished = qtrain(model, maze, qmaze.visuals, epochs=1000, max_memory=8 * maze.size, data_size=32)
-    time += _time
+    # show(qmaze)
+    # plt.show()
+    model = build_model(maze)
 
-print("Training successful after %s." % (format_time(time)))
+    time = qtrain(model, maze, qmaze.visuals, epochs=1000, max_memory=8 * maze.size, data_size=128)
+
+    '''while not finished:
+        print("Model was not finished training! Restarting program...")
+        qmaze.completing = False
+        _time, finished = qtrain(model, maze, qmaze.visuals, epochs=1000, max_memory=8 * maze.size, data_size=64)
+        time += _time
+    '''
+    print("Training successful after %s." % (format_time(time)))

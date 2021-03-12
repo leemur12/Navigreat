@@ -11,154 +11,148 @@ import pygame
 
 
 class Qmaze(object):
-        def __init__(self, maze, rat=(0, 0)):
-            self._maze = maze
-            nrows, ncols = self._maze.shape
+    def __init__(self, maze, rat=(0, 0)):
+        self._maze = maze
+        nrows, ncols = self._maze.shape
 
-            self.target_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == 2.0]
-            self.free_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == 1.0]
-            rat = random.choice(self.free_cells)
-            if rat not in self.free_cells:
-                raise Exception("Invalid Rat Location: must sit on a free cell")
-            self.reset(rat)
+        self.target_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == 2.0]
+        self.free_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == 1.0]
+        rat = random.choice(self.free_cells)
+        if rat not in self.free_cells:
+            raise Exception("Invalid Rat Location: must sit on a free cell")
+        self.reset(rat)
 
-        def reset(self, rat):
-            self.rat = rat
-            self.maze = np.copy(self._maze)
+    def reset(self, rat):
+        self.rat = rat
+        self.maze = np.copy(self._maze)
 
-            nrows, ncols = self.maze.shape
-            row, col = rat
-            self.maze[row, col] = rat_mark
-            self.state = (row, col, 'start')
-            self.min_reward = -0.5 * self.maze.size
-            self.total_reward = 0
-            self.visited = set()
-            print(self.maze)
+        nrows, ncols = self.maze.shape
+        row, col = rat
+        self.maze[row, col] = rat_mark
+        self.state = (row, col, 'start')
+        self.min_reward = -0.5 * self.maze.size
+        self.total_reward = 0
+        self.visited = set()
+        print(self.maze)
 
-        def update_state(self, action):
-            nrows, ncols = self.maze.shape
-            nrow, ncol, nmode = rat_row, rat_col, mode = self.state
+    def update_state(self, action):
+        nrows, ncols = self.maze.shape
+        nrow, ncol, nmode = rat_row, rat_col, mode = self.state
 
-            if self.maze[rat_row, rat_col] > 0.0:
-                self.visited.add((rat_row, rat_col))  # mark visited cell
+        if self.maze[rat_row, rat_col] > 0.0:
+            self.visited.add((rat_row, rat_col))  # mark visited cell
 
+        valid_actions = self.valid_actions()
+
+        if not valid_actions:
+            nmode = 'blocked'
+        elif action in valid_actions:
+            nmode = 'valid'
+            if action == LEFT:
+                ncol -= 1
+            elif action == UP:
+                nrow -= 1
+            if action == RIGHT:
+                ncol += 1
+            elif action == DOWN:
+                nrow += 1
+        else:  # invalid action, no change in rat position
+            mode = 'invalid'
+
+        # new state
+        self.state = (nrow, ncol, nmode)
+
+    def get_reward(self):
+        rat_row, rat_col, mode = self.state
+        nrows, ncols = self.maze.shape
+        if (rat_row, rat_col) in self.target_cells:
+            return 1.0
+        if mode == 'blocked':
+            return self.min_reward - 1
+        if (rat_row, rat_col) in self.visited:
             valid_actions = self.valid_actions()
-
-            if not valid_actions:
-                nmode = 'blocked'
-            elif action in valid_actions:
-                nmode = 'valid'
-                if action == LEFT:
-                    ncol -= 1
-                elif action == UP:
-                    nrow -= 1
-                if action == RIGHT:
-                    ncol += 1
-                elif action == DOWN:
-                    nrow += 1
-            else:  # invalid action, no change in rat position
-                mode = 'invalid'
-
-            # new state
-            self.state = (nrow, ncol, nmode)
-
-        def get_reward(self):
-            rat_row, rat_col, mode = self.state
-            nrows, ncols = self.maze.shape
-            if (rat_row, rat_col) in self.target_cells:
-                return 1.0
-            if mode == 'blocked':
-                return self.min_reward - 1
-            if (rat_row, rat_col) in self.visited:
-                valid_actions = self.valid_actions()
-                if len(valid_actions) == 1:
-                    return -0.75
-                return -0.25
-            if mode == 'invalid':
+            if len(valid_actions) == 1:
                 return -0.75
-            if mode == 'valid':
-                return -0.04
-            if mode == 'start':
-                return 0.0
+            return -0.25
+        if mode == 'invalid':
+            return -0.75
+        if mode == 'valid':
+            return -0.04
+        if mode == 'start':
+            return 0.0
 
-        def act(self, action):
-            self.update_state(action)
-            reward = self.get_reward()
-            self.total_reward += reward
-            status = self.game_status()
-            envstate = self.observe()
-            return envstate, reward, status
+    def act(self, action):
+        self.update_state(action)
+        reward = self.get_reward()
+        self.total_reward += reward
+        status = self.game_status()
+        envstate = self.observe()
+        return envstate, reward, status
 
-        def observe(self):
-            canvas = self.draw_env()
-            envstate = canvas.reshape((1, -1))
+    def observe(self):
+        canvas = self.draw_env()
+        envstate = canvas.reshape((1, -1))
 
-            return envstate
+        return envstate
 
-        def draw_env(self):
-            canvas = np.copy(self._maze)
-            #print(self._maze)
+    def draw_env(self):
+        canvas = np.copy(self._maze)
+        # print(self._maze)
 
-            nrows, ncols = self.maze.shape
-            # clear all visual marks
+        nrows, ncols = self.maze.shape
+        # clear all visual marks
 
-            for r in range(nrows):
-                for c in range(ncols):
-                    if canvas[r, c] > 0.0:
-                        canvas[r, c] = 1.0
-            # draw the rat
+        for r in range(nrows):
+            for c in range(ncols):
+                if canvas[r, c] > 0.0:
+                    canvas[r, c] = 1.0
+        # draw the rat
 
-            row, col, valid = self.state
-            canvas[row, col] = rat_mark
-            return canvas
+        row, col, valid = self.state
+        canvas[row, col] = rat_mark
+        return canvas
 
-        def game_status(self):
-            if self.total_reward < self.min_reward:
-                return 'lose'
-            rat_row, rat_col, mode = self.state
-            nrows, ncols = self.maze.shape
-            if (rat_row, rat_col) in self.target_cells:
-                return 'win'
+    def game_status(self):
+        if self.total_reward < self.min_reward:
+            return 'lose'
+        rat_row, rat_col, mode = self.state
+        nrows, ncols = self.maze.shape
+        if (rat_row, rat_col) in self.target_cells:
+            return 'win'
 
-            return 'not_over'
+        return 'not_over'
 
-        def valid_actions(self, cell=None):
-            if cell is None:
-                row, col, mode = self.state
-            else:
-                row, col = cell
-            actions = [0, 1, 2, 3]
-            nrows, ncols = self._maze.shape
-            if row == 0:
-                actions.remove(1)
-            elif row == nrows - 1:
-                actions.remove(3)
+    def valid_actions(self, cell=None):
+        if cell is None:
+            row, col, mode = self.state
+        else:
+            row, col = cell
+        actions = [0, 1, 2, 3]
+        nrows, ncols = self._maze.shape
+        if row == 0:
+            actions.remove(1)
+        elif row == nrows - 1:
+            actions.remove(3)
 
-            if col == 0:
-                actions.remove(0)
-            elif col == ncols - 1:
-                actions.remove(2)
+        if col == 0:
+            actions.remove(0)
+        elif col == ncols - 1:
+            actions.remove(2)
 
-            if row > 0 and self._maze[row - 1, col] == 0.0:
-                actions.remove(1)
-            if row < nrows - 1 and self._maze[row + 1, col] == 0.0:
-                actions.remove(3)
+        if row > 0 and self._maze[row - 1, col] == 0.0:
+            actions.remove(1)
+        if row < nrows - 1 and self._maze[row + 1, col] == 0.0:
+            actions.remove(3)
 
+        if col > 0 and self._maze[row, col - 1] == 0.0:
+            actions.remove(0)
+        if col < ncols - 1 and self._maze[row, col + 1] == 0.0:
+            actions.remove(2)
 
-            if col > 0 and self._maze[row, col - 1] == 0.0:
-                actions.remove(0)
-            if col < ncols - 1 and self._maze[row, col + 1] == 0.0:
-                actions.remove(2)
-
-            return actions
-
-
-
-
+        return actions
 
 
-
-def runModel(model, maze, **opt):
+def run_model(model, maze, **opt):
     global epsilon
     n_epoch = opt.get('n_epoch', 15000)
     max_memory = opt.get('max_memory', 1000)
@@ -178,25 +172,24 @@ def runModel(model, maze, **opt):
     for cell in qmaze.free_cells:
         qmaze.reset(cell)
         envstate = qmaze.observe()
-        game_over=False
-        count=0
+        game_over = False
+        count = 0
         while not game_over:
 
-            count=count+1
+            count = count + 1
             prev_envstate = envstate
             # get next action
             q = model(prev_envstate).numpy()[0]
             action = np.argmax(q)
 
             while action not in qmaze.valid_actions():
-                  q[action]+=-999
-                  action=np.argmax(q)
-
+                q[action] += -999
+                action = np.argmax(q)
 
             # apply action, get rewards and new state
             envstate, reward, game_status = qmaze.act(action)
 
-            row, col, mode= qmaze.state
+            row, col, mode = qmaze.state
             # print(qmaze.valid_actions())
             # print(row, col, mode)
 
@@ -208,30 +201,31 @@ def runModel(model, maze, **opt):
             pygame.display.update()
             if game_status == 'win':
                 game_over = True
-                #print("won")
-            elif game_status=='lose' or count>=20:
-                game_over=True
-                #print("lost")
+                # print("won")
+            elif game_status == 'lose' or count >= 20:
+                game_over = True
+                # print("lost")
             else:
                 game_over = False
             time.sleep(0.1)
 
-def build_model(maze, lr=0.001):
-    model = Sequential()
-    model.add(Dense(maze.size, input_shape=(maze.size,)))
-    model.add(PReLU())
-    model.add(Dense(maze.size))
-    model.add(PReLU())
-    model.add(Dense(num_actions))
-    model.compile(optimizer='adam', loss='mse')
-    return model
 
-myFile = pd.read_csv('NGArray.csv', sep=',', header=None)
+def build_model(maze, lr=0.001):
+    model_build = Sequential()
+    model_build.add(Dense(maze.size, input_shape=(maze.size,)))
+    model_build.add(PReLU())
+    model_build.add(Dense(maze.size))
+    model_build.add(PReLU())
+    model_build.add(Dense(num_actions))
+    model_build.compile(optimizer='adam', loss='mse')
+    return model_build
+
+
+myFile = pd.read_csv('TrainingMazes/NGArray.csv', sep=',', header=None)
 maze = pd.DataFrame(myFile).to_numpy()
 
-
 visited_mark = 0.8  # Cells visited by the rat will be painted by gray 0.8
-rat_mark = 0.5  # The current rat cell will be painteg by gray 0.5
+rat_mark = 0.5  # The current rat cell will be painted by gray 0.5
 LEFT = 0
 UP = 1
 RIGHT = 2
@@ -247,9 +241,7 @@ actions_dict = {
 
 num_actions = len(actions_dict)
 
-
 # Initialize the maze
-
 
 
 dispL = 700
@@ -265,6 +257,5 @@ pyMaze.draw()
 playerSprite = PygameDisplay.PlayerSprite(pyMaze.blockLen, gameDisplay)
 pygame.display.update()
 
-
 model = build_model(maze)
-runModel(model, maze)
+run_model(model, maze)
