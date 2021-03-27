@@ -18,8 +18,11 @@ class Qmaze(object):
         self._maze = maze
         nrows, ncols = self._maze.shape
         self.visuals = True
-        self.target_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == 2.0]
-        self.free_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == 1.0]
+        self.exits = 1.0
+        self.walls = -1.0
+        self.paths = 0.0
+        self.target_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == self.exits]
+        self.free_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == self.paths]
         rat = random.choice(self.free_cells)
         if rat not in self.free_cells:
             raise Exception("Invalid Rat Location: must sit on a free cell")
@@ -36,7 +39,7 @@ class Qmaze(object):
         row, col = rat
         self.maze[row, col] = rat_mark
         self.state = (row, col, 'start')
-        self.min_reward = -0.25* self.maze.size
+        self.min_reward = -0.025 * self.maze.size
         self.total_reward = 0
         self.visited = set()
         self.last_visited = rat
@@ -45,7 +48,7 @@ class Qmaze(object):
         nrows, ncols = self.maze.shape
         nrow, ncol, nmode = rat_row, rat_col, mode = self.state
 
-        if self.maze[rat_row, rat_col] > 0.0 and (rat_row, rat_col) not in self.visited:
+        if self.maze[rat_row, rat_col] > self.walls and (rat_row, rat_col) not in self.visited:
             self.visited.add((rat_row, rat_col))  # mark visited cell
 
         valid_actions = self.valid_actions()
@@ -100,22 +103,18 @@ class Qmaze(object):
         return envstate, reward, status
 
     def observe(self):
-        canvas = self.draw_env()
-        envstate = canvas.reshape((1, -1))
-        return envstate
-
-    def draw_env(self):
         canvas = np.copy(self.maze)
         nrows, ncols = self.maze.shape
         # clear all visual marks
         for r in range(nrows):
             for c in range(ncols):
-                if 0.0 < canvas[r, c] < 1.5:
-                    canvas[r, c] = 1.0
+                if canvas[r, c] == 0.5:
+                    canvas[r, c] = 0.0
         # draw the rat
         row, col, valid = self.state
         canvas[row, col] = rat_mark
-        return canvas
+        envstate = canvas.reshape((1, -1))
+        return envstate
 
     def game_status(self):
         if self.total_reward < self.min_reward:
@@ -145,14 +144,14 @@ class Qmaze(object):
         elif col == ncols - 1:
             actions.remove(2)
 
-        if row > 0 and self.maze[row - 1, col] == 0.0:
+        if row > 0 and self.maze[row - 1, col] == self.walls:
             actions.remove(1)
-        if row < nrows - 1 and self.maze[row + 1, col] == 0.0:
+        if row < nrows - 1 and self.maze[row + 1, col] == self.walls:
             actions.remove(3)
 
-        if col > 0 and self.maze[row, col - 1] == 0.0:
+        if col > 0 and self.maze[row, col - 1] == self.walls:
             actions.remove(0)
-        if col < ncols - 1 and self.maze[row, col + 1] == 0.0:
+        if col < ncols - 1 and self.maze[row, col + 1] == self.walls:
             actions.remove(2)
 
         if row > 0 and (row - 1, col) in self.visited and self.completing:
@@ -269,14 +268,16 @@ class Experience(object):
         return inputs, targets
 
 
-
-def qtrain(model, maze, view, **opt):
+def qtrain(model, maze, view, repeat, **opt):
     global global_epoch
     global epsilon
     n_epoch = opt.get('n_epoch', 10000)
     max_memory = opt.get('max_memory', 1000)
     data_size = opt.get('data_size', 50)
-    weights_file = opt.get('weights_file', "")  # model.h5
+    if repeat:
+        weights_file = opt.get('weights_file', "model.h5") # model.h5
+    else:
+        weights_file = opt.get('weights_file', "")
     name = opt.get('name', 'model')
     start_time = datetime.datetime.now()
 
@@ -294,7 +295,7 @@ def qtrain(model, maze, view, **opt):
 
     win_history = []  # history of win/lose game
     n_free_cells = len(qmaze.free_cells)
-    hsize = 20  # history window size
+    hsize = 5  # history window size
     win_rate = 0.0
     imctr = 1
 
@@ -387,7 +388,9 @@ def qtrain(model, maze, view, **opt):
             global_epoch= global_epoch+1
 
             if len(win_history) > hsize:
-                win_rate = sum(win_history[-hsize:]) / hsize
+                print("Calculate win rate")
+                # win_rate = sum(win_history[-hsize:]) / hsize
+                win_rate = sum(win_history[-1:])
 
             dt = datetime.datetime.now() - start_time
             t = format_time(dt.total_seconds())
@@ -458,7 +461,7 @@ maze = np.array([
 """
 
 visited_mark = 0.8  # Cells visited by the rat will be painted by gray 0.8
-rat_mark = 3  # The current rat cell will be painted by gray 0.5
+rat_mark = .5  # The current rat cell will be painted by gray 0.5
 LEFT = 0
 UP = 1
 RIGHT = 2
@@ -481,11 +484,13 @@ epsilon = 0.1
 
 directory = "TrainingMazes/"
 
+reps = False
+
 for file in os.listdir(directory):
     filename = os.fsdecode(file)
     mazeFile = os.path.join(directory, filename)
     myFile = pd.read_csv(mazeFile, sep=',', header=None)
-    maze = pd.DataFrame(myFile).to_numpy()
+    maze = pd.DataFrame(myFile).to_numpy(dtype="float16")
 
     # Initialize the maze
     qmaze = Qmaze(maze, False)
@@ -498,7 +503,7 @@ for file in os.listdir(directory):
         gameDisplay = pygame.display.set_mode(size=(square_size * cols, square_size * rows))
         pygame.display.set_caption('Maze')
         gameDisplay.fill((255, 255, 255))
-        pyMaze = PygameDisplay.Maze(maze, gameDisplay, dispL, 0, 2)
+        pyMaze = PygameDisplay.Maze(maze, gameDisplay, dispL, qmaze.walls, qmaze.exits)
         pyMaze.draw()
 
         playerSprite = PygameDisplay.PlayerSprite(pyMaze.blockLen, gameDisplay)
@@ -508,7 +513,7 @@ for file in os.listdir(directory):
     # plt.show()
     model = build_model(maze)
 
-    time = qtrain(model, maze, qmaze.visuals, epochs=1000, max_memory=8 * maze.size, data_size=128)
+    time = qtrain(model, maze, qmaze.visuals, reps, epochs=1000, max_memory=8 * maze.size, data_size=128)
 
     '''while not finished:
         print("Model was not finished training! Restarting program...")
@@ -517,3 +522,4 @@ for file in os.listdir(directory):
         time += _time
     '''
     print("Training successful after %s." % (format_time(time)))
+    reps = True
