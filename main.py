@@ -36,7 +36,7 @@ class Qmaze(object):
         row, col = rat
         self.maze[row, col] = rat_mark
         self.state = (row, col, 'start')
-        self.min_reward = -0.25 * self.maze.size
+        self.min_reward = -0.25* self.maze.size
         self.total_reward = 0
         self.visited = set()
         self.last_visited = rat
@@ -269,9 +269,11 @@ class Experience(object):
         return inputs, targets
 
 
+
 def qtrain(model, maze, view, **opt):
+    global global_epoch
     global epsilon
-    n_epoch = opt.get('n_epoch', 15000)
+    n_epoch = opt.get('n_epoch', 10000)
     max_memory = opt.get('max_memory', 1000)
     data_size = opt.get('data_size', 50)
     weights_file = opt.get('weights_file', "")  # model.h5
@@ -296,10 +298,10 @@ def qtrain(model, maze, view, **opt):
     win_rate = 0.0
     imctr = 1
 
-    log_dir = "logs/fit/mouse2"
+    log_dir = "logs/fit/test"
     writer = tf.summary.create_file_writer(log_dir)
     with writer.as_default():
-        for epoch in range(n_epoch):
+        for epoch in range(global_epoch, global_epoch+n_epoch):
             print("on epoch", epoch)
             loss = 0.0
             rat_cell = random.choice(qmaze.free_cells)
@@ -373,7 +375,7 @@ def qtrain(model, maze, view, **opt):
                 )
 
                 tf.summary.scalar("epoch_loss", h.history["loss"][0], step=epoch)
-                tf.summary.scalar("episode_reward", reward, step=epoch)
+                tf.summary.scalar("episode_reward", qmaze.total_reward, step=epoch)
                 tf.summary.scalar("win_rate", sum(win_history[-hsize:]) / hsize, step=epoch)
                 writer.flush()
 
@@ -381,6 +383,8 @@ def qtrain(model, maze, view, **opt):
                 qmaze.loss_memory.append(loss)
                 if len(qmaze.loss_memory) > qmaze.max_loss_memory:
                     qmaze.loss_memory.pop(0)
+
+            global_epoch= global_epoch+1
 
             if len(win_history) > hsize:
                 win_rate = sum(win_history[-hsize:]) / hsize
@@ -393,7 +397,7 @@ def qtrain(model, maze, view, **opt):
             # cases the agent won
             if game_status == 'win' and epsilon >= 0.05:
                 epsilon -= .1 / qmaze.maze.size
-            if len(win_history) > hsize and win_rate == 1.0:
+            if len(win_history) > hsize and win_rate ==1:
                 print("Reached .005 average loss at epoch: %d" % (epoch,))
                 break
             experience.memory.clear()
@@ -468,10 +472,12 @@ actions_dict = {
     DOWN: 'down',
 }
 
-num_actions = len(actions_dict)
 
+num_actions = len(actions_dict)
+global_epoch=0
 # Exploration factor
 epsilon = 0.1
+
 
 directory = "TrainingMazes/"
 
