@@ -4,13 +4,13 @@ import time
 import os
 os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import PygameDisplay
-import pygame
+
 
 from collections import deque
 
 directory = "TrainingMazes/"
 
-file= os.listdir(directory)[0]
+file= os.listdir(directory)[3]
 filename = os.fsdecode(file)
 
 pdMaze = pd.read_csv(os.path.join(directory, filename), sep=',', header=None)
@@ -82,35 +82,26 @@ def find_path(endpoint):
             c+=1
             path.append((r, c))
             step-=1
-    path.pop()
+
     return path
 
 print(time.time()-start_time)
 
 
 
-dispL = 800
-rows, cols = maze.shape
-square_size = int(dispL / max(rows, cols))
-pygame.init()
-gameDisplay = pygame.display.set_mode(size=(square_size * cols, square_size * rows))
-pygame.display.set_caption('Maze')
-gameDisplay.fill((255, 255, 255))
-pyMaze = PygameDisplay.Maze(maze, gameDisplay, dispL, -1, 1)
+dispL = 700
+pyMaze = PygameDisplay.Maze(maze, dispL, -1, 1)
 
 
 for win_cell in win_cells:
     path= find_path(win_cell)
-    pyMaze.draw()
-    for cell in reversed(path):
-        r,c=cell
 
-        pyMaze.drawRect(r,c, (255,0,0))
-        pygame.display.update()
-        time.sleep(0.05)
+    pyMaze.drawMaze()
+    pyMaze.update()
+    pyMaze.drawPath(path, True)
 
-    pyMaze.draw()
-    pygame.display.update()
+
+
 
 
 

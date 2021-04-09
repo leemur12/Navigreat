@@ -202,10 +202,10 @@ def play_game(model, qmaze, rat_cell):
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     quit()
-            pyMaze.draw()
+
             spot = np.where(envstate == rat_mark)
-            playerSprite.draw(math.ceil(float(spot[0][0]) / ncols), spot[0][0] % ncols)
-            pygame.display.update()
+            pyMaze.drawPlayerSprite(math.ceil(float(spot[0][0]) / ncols), spot[0][0] % ncols)
+            pyMaze.update()
         if game_status == 'win':
             if qmaze.visuals:
                 row, col, mode = qmaze.state
@@ -335,9 +335,10 @@ def qtrain(model, maze, view, repeat, **opt):
                                 json.dump(model.to_json(), outfile)
                             print("Saved model!")
                             quit()
-                    pyMaze.draw()
-                    playerSprite.draw(col, row)
-                    pygame.display.update()
+
+                    pyMaze.drawMaze()
+                    pyMaze.drawPlayerSprite(col, row)
+                    pyMaze.update()
 
                 # print(row, col, mode)
 
@@ -348,7 +349,7 @@ def qtrain(model, maze, view, repeat, **opt):
                     if qmaze.visuals:
                         row, col, mode = qmaze.state
                         pyMaze.drawRect(row, col, (0, 183, 255))
-                        pygame.display.update()
+                        pyMaze.update()
                     win_history.append(1)
                     game_over = True
                 elif game_status == 'lose':
@@ -496,18 +497,11 @@ for file in os.listdir(directory):
     qmaze = Qmaze(maze, False)
 
     if qmaze.visuals:
-        dispL = 800
-        rows, cols = maze.shape
-        square_size = int(dispL / max(rows, cols))
-        pygame.init()
-        gameDisplay = pygame.display.set_mode(size=(square_size * cols, square_size * rows))
-        pygame.display.set_caption('Maze')
-        gameDisplay.fill((255, 255, 255))
-        pyMaze = PygameDisplay.Maze(maze, gameDisplay, dispL, qmaze.walls, qmaze.exits)
-        pyMaze.draw()
 
-        playerSprite = PygameDisplay.PlayerSprite(pyMaze.blockLen, gameDisplay)
-        pygame.display.update()
+        dispL=700
+        pyMaze = PygameDisplay.Maze(maze, dispL, qmaze.walls, qmaze.exits)
+        pyMaze.drawMaze()
+        pyMaze.update()
 
     # show(qmaze)
     # plt.show()
