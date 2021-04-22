@@ -206,10 +206,10 @@ def play_game(model, qmaze, rat_cell):
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     quit()
-            pyMaze.draw()
+
             spot = np.where(envstate == rat_mark)
-            playerSprite.draw(math.ceil(float(spot[0][0]) / ncols), spot[0][0] % ncols)
-            pygame.display.update()
+            pyMaze.drawPlayerSprite(math.ceil(float(spot[0][0]) / ncols), spot[0][0] % ncols)
+            pyMaze.update()
         if game_status == 'win':
             if qmaze.visuals:
                 row, col, mode = qmaze.state
@@ -273,8 +273,9 @@ class Experience(object):
 
 
 def qtrain(model, maze, view, repeat, **opt):
+    global global_epoch
     global epsilon
-    n_epoch = opt.get('n_epoch', 15000)
+    n_epoch = opt.get('n_epoch', 10000)
     max_memory = opt.get('max_memory', 1000)
     data_size = opt.get('data_size', 50)
     prev_accuracy = 0.0
@@ -304,10 +305,10 @@ def qtrain(model, maze, view, repeat, **opt):
     win_rate = 0.0
     imctr = 1
 
-    log_dir = "logs/fit/mouse2"
+    log_dir = "logs/fit/test"
     writer = tf.summary.create_file_writer(log_dir)
     with writer.as_default():
-        for epoch in range(n_epoch):
+        for epoch in range(global_epoch, global_epoch+n_epoch):
             print("on epoch", epoch)
             loss = 0.0
             rat_cell = random.choice(qmaze.free_cells)
@@ -341,9 +342,10 @@ def qtrain(model, maze, view, repeat, **opt):
                                 json.dump(model.to_json(), outfile)
                             print("Saved model!")
                             quit()
-                    pyMaze.draw()
-                    playerSprite.draw(col, row)
-                    pygame.display.update()
+
+                    pyMaze.drawMaze()
+                    pyMaze.drawPlayerSprite(col, row)
+                    pyMaze.update()
 
                 # print(row, col, mode)
 
@@ -354,7 +356,7 @@ def qtrain(model, maze, view, repeat, **opt):
                     if qmaze.visuals:
                         row, col, mode = qmaze.state
                         pyMaze.drawRect(row, col, (0, 183, 255))
-                        pygame.display.update()
+                        pyMaze.update()
                     win_history.append(1)
                     game_over = True
                 elif game_status == 'lose':
@@ -392,6 +394,8 @@ def qtrain(model, maze, view, repeat, **opt):
                     qmaze.loss_memory.pop(0)
                 """
 
+            global_epoch= global_epoch+1
+
             if len(win_history) > hsize:
                 if epoch % 10 == 0:
                     win_rate = sum(win_history) / len(win_history)
@@ -408,9 +412,11 @@ def qtrain(model, maze, view, repeat, **opt):
             if game_status == 'win' and epsilon >= 0.05:
                 epsilon -= .1 / qmaze.maze.size
 
+
             # check end condition
             if len(win_history) > hsize and accuracy_comparison < .01:
                 print("Plateaued at epoch %i" % epoch)
+
                 break
             experience.memory.clear()
 
@@ -484,10 +490,12 @@ actions_dict = {
     DOWN: 'down',
 }
 
-num_actions = len(actions_dict)
 
+num_actions = len(actions_dict)
+global_epoch=0
 # Exploration factor
 epsilon = 0.1
+
 
 directory = "TrainingMazes/"
 
@@ -503,18 +511,11 @@ for file in os.listdir(directory):
     qmaze = Qmaze(maze, False)
 
     if qmaze.visuals:
-        dispL = 800
-        rows, cols = maze.shape
-        square_size = int(dispL / max(rows, cols))
-        pygame.init()
-        gameDisplay = pygame.display.set_mode(size=(square_size * cols, square_size * rows))
-        pygame.display.set_caption('Maze')
-        gameDisplay.fill((255, 255, 255))
-        pyMaze = PygameDisplay.Maze(maze, gameDisplay, dispL, qmaze.walls, qmaze.exits)
-        pyMaze.draw()
 
-        playerSprite = PygameDisplay.PlayerSprite(pyMaze.blockLen, gameDisplay)
-        pygame.display.update()
+        dispL=700
+        pyMaze = PygameDisplay.Maze(maze, dispL, qmaze.walls, qmaze.exits)
+        pyMaze.drawMaze()
+        pyMaze.update()
 
     # show(qmaze)
     # plt.show()
