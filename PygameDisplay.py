@@ -1,12 +1,21 @@
 import numpy as np
+import os
+os.environ['PYGAME_HIDE_SUPPORT_PROMPT'] = "hide"
 import pygame
 import math
-
+import time
 
 class Maze:
-    def __init__(self, maze, game_display, disp_len, wall=-1, win=5):
+    def __init__(self, maze, disp_len=700, wall=-1, win=5):
+
         self.maze = maze
-        self.gameDisplay = game_display
+        pygame.init()
+
+        rows, cols = maze.shape
+        square_size = int(disp_len / max(rows, cols))
+        self.gameDisplay = pygame.display.set_mode(size=(square_size * cols, square_size * rows))
+        pygame.display.set_caption('Maze')
+        self.gameDisplay.fill((255, 255, 255))
         self.mazeR = len(maze)
         self.mazeC = len(maze[0])
         self.wall = wall
@@ -14,10 +23,15 @@ class Maze:
 
         self.blockLen = disp_len / max(self.mazeR, self.mazeC)
 
-    def update(self, maze):
+        self.PlayerSprite= PlayerSprite(self.blockLen, self.gameDisplay)
+
+    def update(self):
+        pygame.display.update()
+
+    def updateMaze(self, maze):
         self.maze = maze
 
-    def draw(self, islines=False):
+    def drawMaze(self, islines=False):
         self.gameDisplay.fill((255, 255, 255))
         ypos = 0
         for i in self.maze:
@@ -52,6 +66,9 @@ class Maze:
     def drawRect(self, row, col, color=(255, 255, 255)):
         pygame.draw.rect(self.gameDisplay, color, [col * self.blockLen, row * self.blockLen, self.blockLen + 1, self.blockLen + 1])
 
+    def drawPlayerSprite(self, x, y):
+        self.PlayerSprite.draw(x,y)
+
     def drawQTableValuesArrow(self, qTable):
 
         arrowImg = pygame.image.load('arrow.png')
@@ -79,6 +96,14 @@ class Maze:
                 x = self.blockLen * (i % self.mazeR)
 
                 self.blitRotateCenter(self.gameDisplay, arrowImg, (x, y), deg)
+    def drawPath(self, path, isReversed=False):
+        if isReversed:
+            p=reversed(path)
+        for cell in p:
+            pygame.draw.rect(self.gameDisplay, (0, 0, 255), [cell[1]*self.blockLen, cell[0]*self.blockLen, self.blockLen + 1, self.blockLen + 1])
+            pygame.display.update()
+            time.sleep(0.03)
+
 
     def drawQtableValuesNum(self, qTable):
         myFont = pygame.font.SysFont("Times New Roman", 18)

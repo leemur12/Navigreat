@@ -196,8 +196,8 @@ def run_model(model, maze, **opt):
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     quit()
-            pyMaze.draw()
-            playerSprite.draw(col, row)
+            pyMaze.drawMaze()
+            pyMaze.drawPlayerSprite(col, row)
             pygame.display.update()
             if game_status == 'win':
                 game_over = True
@@ -243,18 +243,9 @@ num_actions = len(actions_dict)
 
 # Initialize the maze
 
-
 dispL = 700
-rows, cols = maze.shape
-square_size = int(dispL / max(rows, cols))
-pygame.init()
-gameDisplay = pygame.display.set_mode(size=(square_size * cols, square_size * rows))
-pygame.display.set_caption('Maze')
-gameDisplay.fill((255, 255, 255))
-pyMaze = PygameDisplay.Maze(maze, gameDisplay, dispL, 0, 2)
-pyMaze.draw()
-
-playerSprite = PygameDisplay.PlayerSprite(pyMaze.blockLen, gameDisplay)
+pyMaze = PygameDisplay.Maze(maze,  dispL, -1, 1)
+pyMaze.drawMaze()
 pygame.display.update()
 
 model = build_model(maze)
