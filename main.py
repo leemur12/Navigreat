@@ -12,6 +12,10 @@ import matplotlib.pyplot as plt
 import PygameDisplay
 import pygame
 
+os.environ["TF_MIN_GPU_MULTIPROCESSOR_COUNT"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
+os.environ["TF_XLA_FLAGS"] = "--tf_xla_enable_xla_devices"
+
 
 class Qmaze(object):
     def __init__(self, maze, visuals, rat=(0, 0)):
@@ -273,8 +277,10 @@ def qtrain(model, maze, view, repeat, **opt):
     n_epoch = opt.get('n_epoch', 15000)
     max_memory = opt.get('max_memory', 1000)
     data_size = opt.get('data_size', 50)
+    prev_accuracy = 0.0
+    accuracy_comparison = 0.0
     if repeat:
-        weights_file = opt.get('weights_file', "model.h5") # model.h5
+        weights_file = opt.get('weights_file', "model.h5")  # model.h5
     else:
         weights_file = opt.get('weights_file', "")
     name = opt.get('name', 'model')
@@ -294,7 +300,7 @@ def qtrain(model, maze, view, repeat, **opt):
 
     win_history = []  # history of win/lose game
     n_free_cells = len(qmaze.free_cells)
-    hsize = 5  # history window size
+    hsize = 20  # history window size
     win_rate = 0.0
     imctr = 1
 
@@ -314,7 +320,8 @@ def qtrain(model, maze, view, repeat, **opt):
             n_episodes = 0
             while not game_over:
                 valid_actions = qmaze.valid_actions()
-                if not valid_actions: break
+                if not valid_actions:
+                    break
                 prev_envstate = envstate
                 # Get next action
                 if np.random.rand() < epsilon:
@@ -375,30 +382,35 @@ def qtrain(model, maze, view, repeat, **opt):
                 )
 
                 tf.summary.scalar("epoch_loss", h.history["loss"][0], step=epoch)
-                tf.summary.scalar("episode_reward", reward, step=epoch)
+                tf.summary.scalar("episode_reward", qmaze.total_reward, step=epoch)
                 tf.summary.scalar("win_rate", sum(win_history[-hsize:]) / hsize, step=epoch)
                 writer.flush()
 
                 loss = model.evaluate(inputs, targets, verbose=0)
                 qmaze.loss_memory.append(loss)
-                if len(qmaze.loss_memory) > qmaze.max_loss_memory:
+                """if len(qmaze.loss_memory) > qmaze.max_loss_memory:
                     qmaze.loss_memory.pop(0)
+                """
 
             if len(win_history) > hsize:
-                print("Calculate win rate")
-                # win_rate = sum(win_history[-hsize:]) / hsize
-                win_rate = sum(win_history[-1:])
+                if epoch % 10 == 0:
+                    win_rate = sum(win_history) / len(win_history)
+                    accuracy_comparison = abs(prev_accuracy - win_rate)
+                    prev_accuracy = win_rate
 
             dt = datetime.datetime.now() - start_time
             t = format_time(dt.total_seconds())
-            template = "Epoch: {:03d}/{:d} | Loss: {:.4f} | Episodes: {:d} | Win count: {:d} | Win rate: {:.3f} | time: {}"
+            template = "Epoch: {:03d}/{:d} | Loss: {:.4f} | Episodes: {:d} | Win count: {:d} | Win rate: {:.3f} | " \
+                       "time: {} "
             print(template.format(epoch, n_epoch - 1, loss, n_episodes, sum(win_history), win_rate, t))
-            # we simply check if training has exhausted all free cells and if in all
-            # cases the agent won
+
+            # adjust epsilon
             if game_status == 'win' and epsilon >= 0.05:
                 epsilon -= .1 / qmaze.maze.size
-            if len(win_history) > hsize and win_rate == 1.0:
-                print("Reached .005 average loss at epoch: %d" % (epoch,))
+
+            # check end condition
+            if len(win_history) > hsize and accuracy_comparison < .01:
+                print("Plateaued at epoch %i" % epoch)
                 break
             experience.memory.clear()
 
