@@ -118,6 +118,7 @@ class Maze(base.MazeBase):
                 x, y = self._create_walk(x, y)
             x, y = self._create_backtrack(stack)
 
+
     def _hunt(self, hunt_list):
         """Scans the maze for new position."""
         while hunt_list:
@@ -323,9 +324,15 @@ class Maze(base.MazeBase):
                 # Correct sets in xy sets
                 for pos in set_to_xy[old_set]:
                     xy_to_set[pos] = new_set
+    def evenFix(self):
+        self.maze[-1, :]=-1
+        self.maze[:,-1]=-1
 
     def addExits(self):
         numExits= random.randint(3,6)
+
+        if self.maze.shape[0]%2==0:
+            self.evenFix()
 
         while numExits>0:
 

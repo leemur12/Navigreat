@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import time
 import os
+import random
 import MazeGeneratorHelper as MGen
 
 NUMBER_OF_MAZES= 10
@@ -13,10 +14,20 @@ FOLDER= os.path.join(BASE_DIR, FOLDER_NAME)
 if not os.path.exists(FOLDER):
     os.makedirs(FOLDER)
 
+
 for i in range(NUMBER_OF_MAZES):
     m = MGen.Maze()
-    m.create(DIMENSIONS, DIMENSIONS, 5) #5 means that it uses the "spawn random block" algorithm.
-                                        #See MazeGeneratorHelper to see all the different algorithms.
+    algo= random.randint(0,5)
+
+    # 0 Backtracking
+    # 1 Eller
+    # 2 Sidewinder
+    # 3 Prim
+    # 4 Kruskal
+    # 5 Random
+
+    m.create(DIMENSIONS, DIMENSIONS, algo)
+
     m.addExits()
 
     filename= "Maze"+ str(i)+".csv"
