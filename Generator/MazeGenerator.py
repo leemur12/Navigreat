@@ -5,7 +5,7 @@ import os
 import random
 import MazeGeneratorHelper as MGen
 
-NUMBER_OF_MAZES= 10
+NUMBER_OF_MAZES= 5000
 FOLDER_NAME= "RandomTrainingMazes"
 DIMENSIONS= 18
 BASE_DIR = os.path.join( os.path.dirname( __file__ ), '..' )
