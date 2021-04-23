@@ -43,7 +43,7 @@ class Qmaze(object):
         row, col = rat
         self.maze[row, col] = rat_mark
         self.state = (row, col, 'start')
-        self.min_reward = -0.025 * self.maze.size
+        self.min_reward = -0.1 * self.maze.size
         self.total_reward = 0
         self.visited = set()
         self.last_visited = rat
@@ -70,7 +70,7 @@ class Qmaze(object):
             elif action == DOWN:
                 nrow += 1
         else:  # invalid action, no change in rat position
-            mode = 'invalid'
+            nmode = 'invalid'
 
         # new state
         self.state = (nrow, ncol, nmode)
@@ -301,12 +301,13 @@ def qtrain(model, maze, view, repeat, **opt):
 
     win_history = []  # history of win/lose game
     n_free_cells = len(qmaze.free_cells)
-    hsize = 20  # history window size
+    hsize = 50  # history window size
     win_rate = 0.0
     imctr = 1
 
     log_dir = "logs/fit/test"
     writer = tf.summary.create_file_writer(log_dir)
+    maze_epoch = 0
     with writer.as_default():
         for epoch in range(global_epoch, global_epoch+n_epoch):
             print("on epoch", epoch)
@@ -372,39 +373,39 @@ def qtrain(model, maze, view, repeat, **opt):
 
                 n_episodes += 1
 
-                # Train neural network model
-                inputs, targets = experience.get_data(data_size=data_size)
+            # Train neural network model
+            inputs, targets = experience.get_data(data_size=data_size)
 
-                h = model.fit(
-                    inputs,
-                    targets,
-                    epochs=8,
-                    batch_size=16,
-                    verbose=0,
-                )
+            h = model.fit(
+                inputs,
+                targets,
+                epochs=8,
+                batch_size=16,
+                verbose=0,
+            )
 
-                tf.summary.scalar("epoch_loss", h.history["loss"][0], step=epoch)
-                tf.summary.scalar("episode_reward", qmaze.total_reward, step=epoch)
-                tf.summary.scalar("win_rate", sum(win_history[-hsize:]) / hsize, step=epoch)
-                writer.flush()
+            tf.summary.scalar("epoch_loss", h.history["loss"][0], step=epoch)
+            tf.summary.scalar("episode_reward", qmaze.total_reward, step=epoch)
+            tf.summary.scalar("win_rate", sum(win_history) / len(win_history), step=epoch)
+            writer.flush()
 
-                loss = model.evaluate(inputs, targets, verbose=0)
-                qmaze.loss_memory.append(loss)
-                """if len(qmaze.loss_memory) > qmaze.max_loss_memory:
-                    qmaze.loss_memory.pop(0)
-                """
+            loss = model.evaluate(inputs, targets, verbose=0)
+            qmaze.loss_memory.append(loss)
+            """if len(qmaze.loss_memory) > qmaze.max_loss_memory:
+                qmaze.loss_memory.pop(0)
+            """
 
-            global_epoch= global_epoch+1
+            global_epoch = global_epoch+1
+            win_rate = sum(win_history) / len(win_history)
 
-            if len(win_history) > hsize:
-                if epoch % 10 == 0:
-                    win_rate = sum(win_history) / len(win_history)
-                    accuracy_comparison = abs(prev_accuracy - win_rate)
-                    prev_accuracy = win_rate
+            if len(win_history) > hsize and sum(win_history) > 0.0 and maze_epoch + 1 % 10 == 0:
+                accuracy_comparison = abs(prev_accuracy - win_rate)
+                prev_accuracy = win_rate
 
+            maze_epoch = maze_epoch + 1
             dt = datetime.datetime.now() - start_time
             t = format_time(dt.total_seconds())
-            template = "Epoch: {:03d}/{:d} | Loss: {:.4f} | Episodes: {:d} | Win count: {:d} | Win rate: {:.3f} | " \
+            template = "Epoch: {:03d}/{:d} | Loss: {:.4f} | Episodes: {:d} | Win count: {:d} | Win rate: {:.5f} | " \
                        "time: {} "
             print(template.format(epoch, n_epoch - 1, loss, n_episodes, sum(win_history), win_rate, t))
 
@@ -414,8 +415,10 @@ def qtrain(model, maze, view, repeat, **opt):
 
 
             # check end condition
-            if len(win_history) > hsize and accuracy_comparison < .01:
+            if len(win_history) > hsize and accuracy_comparison < .002:
                 print("Plateaued at epoch %i" % epoch)
+                win_history.clear()
+                print(win_history)
 
                 break
             experience.memory.clear()
@@ -492,12 +495,12 @@ actions_dict = {
 
 
 num_actions = len(actions_dict)
-global_epoch=0
+global_epoch = 0
 # Exploration factor
 epsilon = 0.1
 
 
-directory = "TrainingMazes/"
+directory = "RandomTrainingMazes/"
 
 reps = False
 
