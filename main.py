@@ -43,7 +43,7 @@ class Qmaze(object):
         row, col = rat
         self.maze[row, col] = rat_mark
         self.state = (row, col, 'start')
-        self.min_reward = -0.5 * self.maze.size
+        self.min_reward = -0.75 * self.maze.size
         self.total_reward = 0
         self.visited = set()
         self.last_visited = rat
@@ -521,7 +521,6 @@ reps = False
 
 for file in os.listdir(directory):
     # Exploration factor
-    epsilon = 0.1
     filename = os.fsdecode(file)
     mazeFile = os.path.join(directory, filename)
     myFile = pd.read_csv(mazeFile, sep=',', header=None)
