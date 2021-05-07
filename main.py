@@ -20,6 +20,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 os.environ["TF_XLA_FLAGS"] = "--tf_xla_enable_xla_devices"
 
 
+
 def qtrain(model, maze, view, repeat, **opt):
     global global_epoch
     global epsilon
@@ -45,8 +46,9 @@ def qtrain(model, maze, view, repeat, **opt):
     experience = exp.Experience(model, max_memory=max_memory)
 
     hsize = 50  # history window size
-    win_rate = 0.0
+    win_rate = []
     imctr = 1
+
 
     writer = tf.summary.create_file_writer(log_dir)
 
@@ -194,7 +196,6 @@ def qtrain(model, maze, view, repeat, **opt):
         t = format_time(seconds)
 
 
-
 # This is a small utility for printing readable time strings:
 def format_time(seconds):
     if seconds < 400:
@@ -223,31 +224,36 @@ actions_dict = {
     DOWN: 'down',
 }
 
+
 model_dir="models"
 if not os.path.exists(model_dir):
     os.makedirs(model_dir)
 
 timestr = time.strftime("%Y%m%d-%H%M%S")
 log_dir="logs/"+ timestr
+
 num_actions = len(actions_dict)
 global_epoch = 0
-# Exploration factor
-epsilon = 0.1
 
+# Exploration factor
+epsilon = 0.9
 
 directory = "RandomTrainingMazes/"
 
 reps = False
+
 
 maze=np.zeros((17,17))
 qmaze = q.Qmaze(maze, False)
 
 if qmaze.visuals:
 
+
     dispL=700
     pyMaze = PygameDisplay.Maze(maze, dispL, qmaze.walls, qmaze.exits)
     pyMaze.drawMaze()
     pyMaze.update()
+
 
 model = bm.build_model(maze, num_actions)
 
