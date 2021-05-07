@@ -21,7 +21,7 @@ class Qmaze(object):
     def __init__(self, maze, visuals, rat=(0, 0)):
         self._maze = maze
         nrows, ncols = self._maze.shape
-        self.visuals = True
+        self.visuals = False
         self.exits = 1.0
         self.walls = -1.0
         self.paths = 0.0
@@ -43,7 +43,7 @@ class Qmaze(object):
         row, col = rat
         self.maze[row, col] = rat_mark
         self.state = (row, col, 'start')
-        self.min_reward = -0.1 * self.maze.size
+        self.min_reward = -0.5 * self.maze.size
         self.total_reward = 0
         self.visited = set()
         self.last_visited = rat
@@ -56,7 +56,8 @@ class Qmaze(object):
             self.visited.add((rat_row, rat_col))  # mark visited cell
 
         valid_actions = self.valid_actions()
-
+        # print(valid_actions)
+        # print(action)
         if not valid_actions:
             nmode = 'blocked'
         elif action in valid_actions:
@@ -71,6 +72,7 @@ class Qmaze(object):
                 nrow += 1
         else:  # invalid action, no change in rat position
             nmode = 'invalid'
+            # print('invalid')
 
         # new state
         self.state = (nrow, ncol, nmode)
@@ -102,6 +104,8 @@ class Qmaze(object):
         self.update_state(action)
         reward = self.get_reward()
         self.total_reward += reward
+        # print(reward)
+        # print(self.total_reward)
         status = self.game_status()
         envstate = self.observe()
         return envstate, reward, status
@@ -302,14 +306,15 @@ def qtrain(model, maze, view, repeat, **opt):
     win_history = []  # history of win/lose game
     n_free_cells = len(qmaze.free_cells)
     hsize = 50  # history window size
-    win_rate = 0.0
+    win_rate = []
     imctr = 1
 
     log_dir = "logs/fit/test"
     writer = tf.summary.create_file_writer(log_dir)
     maze_epoch = 0
+    prev_sdv = 0.0
     with writer.as_default():
-        for epoch in range(global_epoch, global_epoch+n_epoch):
+        for epoch in range(global_epoch, global_epoch + n_epoch):
             print("on epoch", epoch)
             loss = 0.0
             rat_cell = random.choice(qmaze.free_cells)
@@ -395,32 +400,44 @@ def qtrain(model, maze, view, repeat, **opt):
                 qmaze.loss_memory.pop(0)
             """
 
-            global_epoch = global_epoch+1
-            win_rate = sum(win_history) / len(win_history)
+            global_epoch = global_epoch + 1
+            win_rate.append(sum(win_history) / len(win_history))
+            sdv = 0.0
+            if len(win_history) >= 9:
+                sum_history = 0
+                for i in range(len(win_history) - 9, len(win_history)):
+                    sum_history = sum_history + win_history[i]
+                history_average = sum_history / len(win_history)
+                sum_averages = 0
+                for i in range(len(win_history) - 9, len(win_history)):
+                    sum_averages = sum_averages + (win_rate[i] - history_average) ** 2
+                variance = sum_averages / 10
+                sdv = math.sqrt(variance)
 
-            if len(win_history) > hsize and sum(win_history) > 0.0 and maze_epoch + 1 % 10 == 0:
-                accuracy_comparison = abs(prev_accuracy - win_rate)
-                prev_accuracy = win_rate
+                """if len(win_history) > hsize and sum(win_history) > 0.0 and maze_epoch + 1 % 10 == 0:
+                    variance = abs(prev_accuracy - win_rate)
+                    prev_accuracy = win_rate"""
 
             maze_epoch = maze_epoch + 1
             dt = datetime.datetime.now() - start_time
             t = format_time(dt.total_seconds())
-            template = "Epoch: {:03d}/{:d} | Loss: {:.4f} | Episodes: {:d} | Win count: {:d} | Win rate: {:.5f} | " \
-                       "time: {} "
-            print(template.format(epoch, n_epoch - 1, loss, n_episodes, sum(win_history), win_rate, t))
+            template = 'Epoch: {:03d}/{:d} | Loss: {:.4f} | Episodes: {:d} | Win count: {:d} | Standard deviation: {' \
+                       ':.5f} | time: {} '
+            print(template.format(epoch, n_epoch - 1, loss, n_episodes, sum(win_history), sdv, t))
 
             # adjust epsilon
             if game_status == 'win' and epsilon >= 0.05:
                 epsilon -= .1 / qmaze.maze.size
 
-
+            print(sdv)
             # check end condition
-            if len(win_history) > hsize and accuracy_comparison < .002:
+            if len(win_history) > hsize and abs(sdv - prev_sdv) < .001:
                 print("Plateaued at epoch %i" % epoch)
                 win_history.clear()
-                print(win_history)
+                win_rate.clear()
 
                 break
+            prev_sdv = sdv
             experience.memory.clear()
 
     # Save trained model weights and architecture, this will be used by the visualization code
@@ -493,12 +510,10 @@ actions_dict = {
     DOWN: 'down',
 }
 
-
 num_actions = len(actions_dict)
 global_epoch = 0
 # Exploration factor
-epsilon = 0.1
-
+epsilon = 0.9
 
 directory = "RandomTrainingMazes/"
 
@@ -514,8 +529,7 @@ for file in os.listdir(directory):
     qmaze = Qmaze(maze, False)
 
     if qmaze.visuals:
-
-        dispL=700
+        dispL = 700
         pyMaze = PygameDisplay.Maze(maze, dispL, qmaze.walls, qmaze.exits)
         pyMaze.drawMaze()
         pyMaze.update()
