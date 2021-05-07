@@ -21,10 +21,10 @@ class Qmaze(object):
     def __init__(self, maze, visuals, rat=(0, 0)):
         self._maze = maze
         nrows, ncols = self._maze.shape
-        self.visuals = True
-        self.exits = 1.0
-        self.walls = -1.0
-        self.paths = 0.0
+        self.visuals = False
+        self.exits = 1
+        self.walls = -1
+        self.paths = 0
         self.target_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == self.exits]
         self.free_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == self.paths]
         rat = random.choice(self.free_cells)
@@ -43,7 +43,7 @@ class Qmaze(object):
         row, col = rat
         self.maze[row, col] = rat_mark
         self.state = (row, col, 'start')
-        self.min_reward = -0.1 * self.maze.size
+        self.min_reward = -0.75 * self.maze.size
         self.total_reward = 0
         self.visited = set()
         self.last_visited = rat
@@ -245,14 +245,12 @@ class Experience(object):
         # memory[i] = episode
         # envstate == flattened 1d maze cells info, including rat cell (see method: observe)
         self.memory.append(episode)
-        if len(self.memory) > self.max_memory:
-            del self.memory[0]
 
     def predict(self, envstate):
         return self.model(envstate)[0]
 
     def get_data(self, data_size=10):
-        env_size = self.memory[0][0].shape[1]  # envstate 1d size (1st element of episode)
+        env_size = qmaze.maze.size  # envstate 1d size (1st element of episode)
         mem_size = len(self.memory)
         data_size = min(mem_size, data_size)
         inputs = np.zeros((data_size, env_size))
@@ -305,7 +303,7 @@ def qtrain(model, maze, view, repeat, **opt):
     win_rate = 0.0
     imctr = 1
 
-    log_dir = "logs/fit/test"
+    log_dir = "logs/spedup"
     writer = tf.summary.create_file_writer(log_dir)
     maze_epoch = 0
     with writer.as_default():
@@ -372,28 +370,30 @@ def qtrain(model, maze, view, repeat, **opt):
                 experience.remember(episode)
 
                 n_episodes += 1
+            if global_epoch % 10 == 0 and len(experience.memory) > 0:
+                # Train neural network model
+                inputs, targets = experience.get_data(data_size=data_size)
 
-            # Train neural network model
-            inputs, targets = experience.get_data(data_size=data_size)
+                h = model.fit(
+                    inputs,
+                    targets,
+                    epochs=8,
+                    batch_size=16,
+                    verbose=0,
+                )
+                print('Trained!')
+                tf.summary.scalar("epoch_loss", h.history["loss"][0], step=epoch)
+                tf.summary.scalar("episode_reward", qmaze.total_reward, step=epoch)
+                tf.summary.scalar("win_rate", sum(win_history) / len(win_history), step=epoch)
+                writer.flush()
 
-            h = model.fit(
-                inputs,
-                targets,
-                epochs=8,
-                batch_size=16,
-                verbose=0,
-            )
-
-            tf.summary.scalar("epoch_loss", h.history["loss"][0], step=epoch)
-            tf.summary.scalar("episode_reward", qmaze.total_reward, step=epoch)
-            tf.summary.scalar("win_rate", sum(win_history) / len(win_history), step=epoch)
-            writer.flush()
-
-            loss = model.evaluate(inputs, targets, verbose=0)
-            qmaze.loss_memory.append(loss)
-            """if len(qmaze.loss_memory) > qmaze.max_loss_memory:
-                qmaze.loss_memory.pop(0)
-            """
+                loss = model.evaluate(inputs, targets, verbose=0)
+                qmaze.loss_memory.append(loss)
+                """if len(qmaze.loss_memory) > qmaze.max_loss_memory:
+                    qmaze.loss_memory.pop(0)
+                """
+            elif len(experience.memory) == 0:
+                print('No memory')
 
             global_epoch = global_epoch+1
             win_rate = sum(win_history) / len(win_history)
@@ -411,9 +411,9 @@ def qtrain(model, maze, view, repeat, **opt):
 
             # adjust epsilon
             if game_status == 'win' and epsilon >= 0.05:
-                epsilon -= .1 / qmaze.maze.size
+                epsilon -= .5 / qmaze.maze.size
 
-
+            experience.memory.clear()
             # check end condition
             if len(win_history) > hsize and accuracy_comparison < .002:
                 print("Plateaued at epoch %i" % epoch)
@@ -421,7 +421,6 @@ def qtrain(model, maze, view, repeat, **opt):
                 print(win_history)
 
                 break
-            experience.memory.clear()
 
     # Save trained model weights and architecture, this will be used by the visualization code
     h5file = name + ".h5"
@@ -432,13 +431,13 @@ def qtrain(model, maze, view, repeat, **opt):
     print("Saved model!")
     print('files: %s, %s' % (h5file, json_file))
     print("n_epoch: %d, max_mem: %d, data: %d, time: %s" % (epoch, max_memory, data_size, t))
-    print("Checking for completion. This will take a while.")
     qmaze.completing = True
     # fin_check = completion_check(model, qmaze)
     end_time = datetime.datetime.now()
     dt = datetime.datetime.now() - start_time
     seconds = dt.total_seconds()
     t = format_time(seconds)
+    # qmaze.memory.clear()
     return seconds  # fin_check
 
 
@@ -496,8 +495,6 @@ actions_dict = {
 
 num_actions = len(actions_dict)
 global_epoch = 0
-# Exploration factor
-epsilon = 0.1
 
 
 directory = "RandomTrainingMazes/"
@@ -505,6 +502,8 @@ directory = "RandomTrainingMazes/"
 reps = False
 
 for file in os.listdir(directory):
+    # Exploration factor
+    epsilon = 0.1
     filename = os.fsdecode(file)
     mazeFile = os.path.join(directory, filename)
     myFile = pd.read_csv(mazeFile, sep=',', header=None)
@@ -515,7 +514,7 @@ for file in os.listdir(directory):
 
     if qmaze.visuals:
 
-        dispL=700
+        dispL = 700
         pyMaze = PygameDisplay.Maze(maze, dispL, qmaze.walls, qmaze.exits)
         pyMaze.drawMaze()
         pyMaze.update()
@@ -524,7 +523,7 @@ for file in os.listdir(directory):
     # plt.show()
     model = build_model(maze)
 
-    time = qtrain(model, maze, qmaze.visuals, reps, epochs=1000, max_memory=8 * maze.size, data_size=128)
+    time = qtrain(model, maze, qmaze.visuals, reps, n_epoch=100000, max_memory=8 * maze.size, data_size=128)
 
     '''while not finished:
         print("Model was not finished training! Restarting program...")
