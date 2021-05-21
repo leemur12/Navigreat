@@ -2,52 +2,35 @@ from __future__ import print_function
 import os, sys, time, datetime, json, random, math
 import numpy as np
 import pandas as pd
-from statistics import mean
-from keras.models import Sequential
-from keras.layers.core import Dense, Activation
-from keras.optimizers import SGD, Adam, RMSprop
-from keras.layers.advanced_activations import PReLU
 import tensorflow as tf
-import matplotlib.pyplot as plt
-import PygameDisplay
+import display
 import pygame
 import qmaze as q
-import experience as exp
-import build_model as bm
+import model
 
 os.environ["TF_MIN_GPU_MULTIPROCESSOR_COUNT"] = "2"
 os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 os.environ["TF_XLA_FLAGS"] = "--tf_xla_enable_xla_devices"
 
 
+def qtrain(maze_model, maze, view, repeat, data_size=128,  **opt):
 
-def qtrain(model, maze, view, repeat, **opt):
+
     global global_epoch
     global epsilon
-    n_epoch = opt.get('n_epoch', 10000)
-    max_memory = opt.get('max_memory', 1000)
-    data_size = opt.get('data_size', 50)
+
+    global_epoch=0
+    n_epoch=60000
     prev_accuracy = 0.0
     accuracy_comparison = 0.0
-    if repeat:
-        weights_file = opt.get('weights_file', "model.h5")  # model.h5
-    else:
-        weights_file = opt.get('weights_file', "")
-    name = opt.get('name', 'model')
+
     start_time = datetime.datetime.now()
 
-    # If you want to continue training from a previous model,
-    # just supply the h5 file name to weights_file option
-    if weights_file:
-        print("loading weights from file: %s" % (weights_file,))
-        model.load_weights(weights_file)
+
     # Initialize experience replay object
 
-    experience = exp.Experience(model, max_memory=max_memory)
-
     hsize = 50  # history window size
-    win_rate = []
-    imctr = 1
+    long_win_history=[]
 
 
     writer = tf.summary.create_file_writer(log_dir)
@@ -60,13 +43,16 @@ def qtrain(model, maze, view, repeat, **opt):
         pyMaze.updateMaze(maze)
 
         # Initialize the maze
-    # Construct environment/game from numpy array: maze (see above)
+        # Construct environment/game from numpy array: maze (see above)
         qmaze = q.Qmaze(maze, view)
-        win_history = []  # history of win/lose game
+        short_win_history = []  # history of win/lose game
+        loss=0
 
         maze_epoch = 0
         with writer.as_default():
             for epoch in range(global_epoch, global_epoch+n_epoch):
+                maze_epoch+=1
+
                 print("on epoch", epoch)
                 loss = 0.0
                 rat_cell = random.choice(qmaze.free_cells)
@@ -74,7 +60,7 @@ def qtrain(model, maze, view, repeat, **opt):
                 game_over = False
 
                 # get initial envstate (1d flattened canvas)
-                envstate = qmaze.observe()
+                envstate = qmaze.observe4()
 
                 n_episodes = 0
                 while not game_over:
@@ -82,43 +68,41 @@ def qtrain(model, maze, view, repeat, **opt):
                     if not valid_actions:
                         break
                     prev_envstate = envstate
+
+
                     # Get next action
                     if np.random.rand() < epsilon:
                         action = random.choice(valid_actions)
                     else:
-                        action = np.argmax(experience.predict(prev_envstate))
+                        action = np.argmax(maze_model.predict(prev_envstate))
 
                     row, col, mode = qmaze.state
 
                     if qmaze.visuals:
                         for event in pygame.event.get():
                             if event.type == pygame.QUIT:
-                                h5file = os.path.join(model_dir,name + ".h5")
-                                json_file = os.path.join(model_dir, name + ".json")
-                                model.save_weights(h5file, overwrite=True)
-                                with open(json_file, "w") as outfile:
-                                    json.dump(model.to_json(), outfile)
-                                print("Saved model!")
+                                maze_model.save()
                                 quit()
+                        pyMaze.update(row, col)
 
-                        pyMaze.drawMaze()
-                        pyMaze.drawPlayerSprite(col, row)
-                        pyMaze.update()
-
-                    # print(row, col, mode)
 
                     # Apply action, get reward and new envstate
                     envstate, reward, game_status = qmaze.act(action)
+
 
                     if game_status == 'win':
                         if qmaze.visuals:
                             row, col, mode = qmaze.state
                             pyMaze.drawRect(row, col, (0, 183, 255))
-                            pyMaze.update()
-                        win_history.append(1)
+                            pyMaze.update(row, col)
+
+                        long_win_history.append(1)
+                        short_win_history.append(1)
                         game_over = True
-                    elif game_status == 'lose':
-                        win_history.append(0)
+                    elif game_status == 'lose' or n_episodes>25:
+                        long_win_history.append(0)
+                        short_win_history.append(0)
+
                         game_over = True
                     else:
                         game_over = False
@@ -126,43 +110,43 @@ def qtrain(model, maze, view, repeat, **opt):
                     # Store episode (experience)
                     episode = [prev_envstate, action, reward, envstate, game_over]
 
-                    experience.remember(episode)
+                    maze_model.remember(episode)
+
+                    # Train neural network model
+                    if len(maze_model.memory) > 10:
+                        h = maze_model.train(data_size)
+                        tf.summary.scalar("epoch_loss", h.history["loss"][0], step=epoch)
+                        tf.summary.scalar("ep_reward", reward, step=epoch)
+                        tf.summary.scalar("game_reward", qmaze.total_reward, step=epoch)
+                        writer.flush()
+                        loss = h.history['loss'][0]
+
 
                     n_episodes += 1
 
-                # Train neural network model
-                if experience.memory:
-                    inputs, targets = experience.get_data(data_size=data_size)
-
-                    h = model.fit(
-                        inputs,
-                        targets,
-                        epochs=8,
-                        batch_size=16,
-                        verbose=0,
-                    )
-
-                    tf.summary.scalar("epoch_loss", h.history["loss"][0], step=epoch)
-                    tf.summary.scalar("episode_reward", qmaze.total_reward, step=epoch)
-                    tf.summary.scalar("win_rate", sum(win_history) / len(win_history), step=epoch)
+                if len(maze_model.memory) > 10:
+                    tf.summary.scalar("short_win_rate", sum(short_win_history) / len(short_win_history), step=epoch)
+                    tf.summary.scalar("long_win_rate", sum(long_win_history) / len(long_win_history), step=epoch)
+                    tf.summary.scalar("number_moves", n_episodes, step=epoch)
                     writer.flush()
 
-                    loss = model.evaluate(inputs, targets, verbose=0)
+
+                    #model.evaluate(inputs, targets, verbose=0)
                     qmaze.loss_memory.append(loss)
 
-                global_epoch = global_epoch+1
-                win_rate = sum(win_history) / len(win_history)
 
-                if len(win_history) > hsize and sum(win_history) > 0.0 and maze_epoch + 1 % 10 == 0:
+                win_rate = sum(short_win_history) / len(short_win_history)
+
+                if len(short_win_history) > hsize and sum(short_win_history) > 0.0 and maze_epoch + 1 % 10 == 0:
                     accuracy_comparison = abs(prev_accuracy - win_rate)
                     prev_accuracy = win_rate
 
-                maze_epoch = maze_epoch + 1
+
                 dt = datetime.datetime.now() - start_time
                 t = format_time(dt.total_seconds())
                 template = "Epoch: {:03d}/{:d} | Loss: {:.4f} | Episodes: {:d} | Win count: {:d} | Win rate: {:.5f} | " \
                            "time: {} "
-                print(template.format(epoch, n_epoch - 1, loss, n_episodes, sum(win_history), win_rate, t))
+                print(template.format(epoch, n_epoch - 1, loss, n_episodes, sum(long_win_history), win_rate, t))
 
                 # adjust epsilon
                 if game_status == 'win' and epsilon >= 0.05:
@@ -170,30 +154,20 @@ def qtrain(model, maze, view, repeat, **opt):
 
 
                 # check end condition
-                if len(win_history) > hsize and accuracy_comparison < .002:
+                if len(short_win_history) > hsize and accuracy_comparison < .002:
                     print("Plateaued at epoch %i" % epoch)
-                    win_history.clear()
-                    print(win_history)
+                    short_win_history.clear()
+
 
                     break
-                experience.memory.clear()
+            maze_model.memory.clear()
+
+            global_epoch += maze_epoch
 
         # Save trained model weights and architecture, this will be used by the visualization code
-        h5file = os.path.join(model_dir, name + ".h5")
-        json_file = os.path.join(model_dir, name + ".json")
-        model.save_weights(h5file, overwrite=True)
-        with open(json_file, "w") as outfile:
-            json.dump(model.to_json(), outfile)
-        print("Saved model!")
-        print('files: %s, %s' % (h5file, json_file))
-        print("n_epoch: %d, max_mem: %d, data: %d, time: %s" % (epoch, max_memory, data_size, t))
-        print("Checking for completion. This will take a while.")
-        qmaze.completing = True
-        # fin_check = completion_check(model, qmaze)
-        end_time = datetime.datetime.now()
-        dt = datetime.datetime.now() - start_time
-        seconds = dt.total_seconds()
-        t = format_time(seconds)
+        maze_model.save()
+
+
 
 
 # This is a small utility for printing readable time strings:
@@ -224,40 +198,34 @@ actions_dict = {
     DOWN: 'down',
 }
 
-
 model_dir="models"
 if not os.path.exists(model_dir):
     os.makedirs(model_dir)
 
+name="4inputs"
 timestr = time.strftime("%Y%m%d-%H%M%S")
-log_dir="logs/"+ timestr
-
+log_dir="logs/"+name+timestr
 num_actions = len(actions_dict)
 global_epoch = 0
-
 # Exploration factor
-epsilon = 0.9
+epsilon = 0.1
+num_actions=4
 
 directory = "RandomTrainingMazes/"
 
 reps = False
 
-
-maze=np.zeros((17,17))
+maze=np.zeros((9,9))
 qmaze = q.Qmaze(maze, False)
 
 if qmaze.visuals:
 
-
     dispL=700
-    pyMaze = PygameDisplay.Maze(maze, dispL, qmaze.walls, qmaze.exits)
+    pyMaze = display.Maze(maze, dispL, qmaze.walls, qmaze.exits)
     pyMaze.drawMaze()
-    pyMaze.update()
+    pygame.display.update()
 
 
-model = bm.build_model(maze, num_actions)
-
-qtrain(model, maze, qmaze.visuals, reps, epochs=1000, max_memory=8 * maze.size, data_size=128)
-
-
-
+input_shape= maze.size*4
+maze_model= model.MazeModel(input_shape, num_actions, name)
+qtrain(maze_model, maze, qmaze.visuals, reps, epochs=1000, max_memory=8 * maze.size, data_size=24)
