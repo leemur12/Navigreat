@@ -24,8 +24,8 @@ class Qmaze(object):
         self.exits = 1.0
         self.walls = -1.0
         self.paths = 0.0
-        self.target_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == self.exits]
 
+        self.target_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == self.exits]
         self.free_cells = [(r, c) for r in range(nrows) for c in range(ncols) if self._maze[r, c] == self.paths]
 
         rat = random.choice(self.free_cells)
@@ -34,7 +34,6 @@ class Qmaze(object):
         self.agent_maze = np.zeros((nrows, ncols))
         self.reset(rat)
         self.last_visited = rat
-
 
         self.completing = False
         self.loss_memory = list()
@@ -54,22 +53,18 @@ class Qmaze(object):
 
         self.min_reward = -0.1 * self.maze.size
         self.total_reward = 0
-
         self.visited = set()
         self.last_visited = rat
 
     def update_state(self, action):
         nrows, ncols = self.maze.shape
         nrow, ncol, nmode = rat_row, rat_col, mode = self.state
-
         #show that the agent was here before
         self.agent_maze[nrow, ncol]= 1
-
         if self.maze[rat_row, rat_col] > self.walls and (rat_row, rat_col) not in self.visited:
             self.visited.add((rat_row, rat_col))  # mark visited cell
 
         valid_actions = self.valid_actions()
-
         if not valid_actions:
             nmode = 'blocked'
         elif action in valid_actions:
@@ -87,7 +82,6 @@ class Qmaze(object):
 
         # new state
         self.state = (nrow, ncol, nmode)
-
 
     def get_reward(self):
         rat_row, rat_col, mode = self.state
@@ -114,6 +108,7 @@ class Qmaze(object):
         self.total_reward += reward
         status = self.game_status()
         envstate = self.observe4()
+
         return envstate, reward, status
 
     def observe(self):

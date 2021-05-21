@@ -229,6 +229,3 @@ if qmaze.visuals:
 input_shape= maze.size*4
 maze_model= model.MazeModel(input_shape, num_actions, name)
 qtrain(maze_model, maze, qmaze.visuals, reps, epochs=1000, max_memory=8 * maze.size, data_size=24)
-
-
-

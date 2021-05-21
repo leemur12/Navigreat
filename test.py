@@ -1,4 +1,3 @@
-
 import os
 import display
 import qmaze as q
@@ -29,7 +28,7 @@ def nn_test(visuals=False):
 
             game_over=False
 
-            envstate=qmaze.observe3()
+            envstate=qmaze.observe4()
 
             total_episodes=0
             print(epoch)
@@ -91,7 +90,6 @@ def nn_test(visuals=False):
             writer.flush()
     print(total_wins/1000)
 def baseline_test():
-
     total_wins = 0
     with writer.as_default():
         for epoch in range(len(file_list)):
@@ -160,14 +158,11 @@ timestr = time.strftime("%Y%m%d-%H%M%S")
 test_log_directory= "Results/"+name+timestr
 dispL=700
 
-input_shape=81*3
+input_shape=81*4
 num_actions=4
-
 
 model= model.MazeModel(input_shape, num_actions, name)
 model.load_weights()
-
-
 
 writer = tf.summary.create_file_writer(test_log_directory)
 file_list= os.listdir(test_directory)
