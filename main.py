@@ -13,25 +13,21 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 os.environ["TF_XLA_FLAGS"] = "--tf_xla_enable_xla_devices"
 
 
-def qtrain(maze_model, maze, view, repeat, data_size=128,  **opt):
-
-
+def qtrain(maze_model, maze, view, repeat, data_size=128, **opt):
     global global_epoch
     global epsilon
 
-    global_epoch=0
-    n_epoch=60000
+    global_epoch = 0
+    n_epoch = 60000
     prev_accuracy = 0.0
     accuracy_comparison = 0.0
 
     start_time = datetime.datetime.now()
 
-
     # Initialize experience replay object
 
     hsize = 50  # history window size
-    long_win_history=[]
-
+    long_win_history = []
 
     writer = tf.summary.create_file_writer(log_dir)
 
@@ -46,12 +42,12 @@ def qtrain(maze_model, maze, view, repeat, data_size=128,  **opt):
         # Construct environment/game from numpy array: maze (see above)
         qmaze = q.Qmaze(maze, view)
         short_win_history = []  # history of win/lose game
-        loss=0
+        loss = 0
 
         maze_epoch = 0
         with writer.as_default():
-            for epoch in range(global_epoch, global_epoch+n_epoch):
-                maze_epoch+=1
+            for epoch in range(global_epoch, global_epoch + n_epoch):
+                maze_epoch += 1
 
                 print("on epoch", epoch)
                 loss = 0.0
@@ -69,7 +65,6 @@ def qtrain(maze_model, maze, view, repeat, data_size=128,  **opt):
                         break
                     prev_envstate = envstate
 
-
                     # Get next action
                     if np.random.rand() < epsilon:
                         action = random.choice(valid_actions)
@@ -85,10 +80,8 @@ def qtrain(maze_model, maze, view, repeat, data_size=128,  **opt):
                                 quit()
                         pyMaze.update(row, col)
 
-
                     # Apply action, get reward and new envstate
                     envstate, reward, game_status = qmaze.act(action)
-
 
                     if game_status == 'win':
                         if qmaze.visuals:
@@ -99,7 +92,7 @@ def qtrain(maze_model, maze, view, repeat, data_size=128,  **opt):
                         long_win_history.append(1)
                         short_win_history.append(1)
                         game_over = True
-                    elif game_status == 'lose' or n_episodes>25:
+                    elif game_status == 'lose' or n_episodes > 100:
                         long_win_history.append(0)
                         short_win_history.append(0)
 
@@ -111,17 +104,6 @@ def qtrain(maze_model, maze, view, repeat, data_size=128,  **opt):
                     episode = [prev_envstate, action, reward, envstate, game_over]
 
                     maze_model.remember(episode)
-
-                    # Train neural network model
-                    if len(maze_model.memory) > 10:
-                        h = maze_model.train(data_size)
-                        tf.summary.scalar("epoch_loss", h.history["loss"][0], step=epoch)
-                        tf.summary.scalar("ep_reward", reward, step=epoch)
-                        tf.summary.scalar("game_reward", qmaze.total_reward, step=epoch)
-                        writer.flush()
-                        loss = h.history['loss'][0]
-
-
                     n_episodes += 1
 
                 if len(maze_model.memory) > 10:
@@ -129,18 +111,14 @@ def qtrain(maze_model, maze, view, repeat, data_size=128,  **opt):
                     tf.summary.scalar("long_win_rate", sum(long_win_history) / len(long_win_history), step=epoch)
                     tf.summary.scalar("number_moves", n_episodes, step=epoch)
                     writer.flush()
-
-
-                    #model.evaluate(inputs, targets, verbose=0)
+                    # model.evaluate(inputs, targets, verbose=0)
                     qmaze.loss_memory.append(loss)
-
 
                 win_rate = sum(short_win_history) / len(short_win_history)
 
                 if len(short_win_history) > hsize and sum(short_win_history) > 0.0 and maze_epoch + 1 % 10 == 0:
                     accuracy_comparison = abs(prev_accuracy - win_rate)
                     prev_accuracy = win_rate
-
 
                 dt = datetime.datetime.now() - start_time
                 t = format_time(dt.total_seconds())
@@ -152,22 +130,26 @@ def qtrain(maze_model, maze, view, repeat, data_size=128,  **opt):
                 if game_status == 'win' and epsilon >= 0.05:
                     epsilon -= .1 / qmaze.maze.size
 
-
                 # check end condition
                 if len(short_win_history) > hsize and accuracy_comparison < .002:
                     print("Plateaued at epoch %i" % epoch)
                     short_win_history.clear()
 
-
                     break
             maze_model.memory.clear()
 
-            global_epoch += maze_epoch
+        global_epoch += maze_epoch
+        # Train neural network model
+        if len(maze_model.memory) > 10:
+            h = maze_model.train(data_size)
+            tf.summary.scalar("epoch_loss", h.history["loss"][0], step=epoch)
+            tf.summary.scalar("ep_reward", reward, step=epoch)
+            tf.summary.scalar("game_reward", qmaze.total_reward, step=epoch)
+            writer.flush()
+            loss = h.history['loss'][0]
 
         # Save trained model weights and architecture, this will be used by the visualization code
         maze_model.save()
-
-
 
 
 # This is a small utility for printing readable time strings:
@@ -198,34 +180,32 @@ actions_dict = {
     DOWN: 'down',
 }
 
-model_dir="models"
+model_dir = "models"
 if not os.path.exists(model_dir):
     os.makedirs(model_dir)
 
-name="4inputs"
+name = "4inputs"
 timestr = time.strftime("%Y%m%d-%H%M%S")
-log_dir="logs/"+name+timestr
+log_dir = "logs/" + name + timestr
 num_actions = len(actions_dict)
 global_epoch = 0
 # Exploration factor
 epsilon = 0.1
-num_actions=4
+num_actions = 4
 
 directory = "RandomTrainingMazes/"
 
 reps = False
 
-maze=np.zeros((9,9))
+maze = np.zeros((9, 9))
 qmaze = q.Qmaze(maze, False)
 
 if qmaze.visuals:
-
-    dispL=700
+    dispL = 700
     pyMaze = display.Maze(maze, dispL, qmaze.walls, qmaze.exits)
     pyMaze.drawMaze()
     pygame.display.update()
 
-
-input_shape= maze.size*4
-maze_model= model.MazeModel(input_shape, num_actions, name)
+input_shape = maze.size * 4
+maze_model = model.MazeModel(input_shape, num_actions, name)
 qtrain(maze_model, maze, qmaze.visuals, reps, epochs=1000, max_memory=8 * maze.size, data_size=24)
