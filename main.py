@@ -114,7 +114,8 @@ def qtrain(maze_model, maze, view, repeat, data_size=128, **opt):
                     # model.evaluate(inputs, targets, verbose=0)
                     qmaze.loss_memory.append(loss)
 
-                win_rate = sum(short_win_history) / len(short_win_history)
+                if len(short_win_history) > 0:
+                    win_rate = sum(short_win_history) / len(short_win_history)
 
                 if len(short_win_history) > hsize and sum(short_win_history) > 0.0 and maze_epoch + 1 % 10 == 0:
                     accuracy_comparison = abs(prev_accuracy - win_rate)
